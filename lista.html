@@ -22,21 +22,12 @@
 <body class="bg-gray-100 p-3 sm:p-6">
     <div class="max-w-6xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md border-t-4 border-red-600 relative">
         <!-- Header -->
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 sm:mb-6 border-b pb-3 sm:pb-4">
-            <div class="flex items-center gap-3 sm:gap-4">
-                <img src="image.jpg" alt="Accesorios Azteca" class="h-10 sm:h-14 object-contain">
-                <div>
-                    <h1 class="text-xl sm:text-2xl font-bold text-gray-800">Buscador de Inventario</h1>
-                    <p class="text-xs sm:text-sm text-gray-500">Vista Lista · Pasa el mouse sobre una fila para ver la foto</p>
-                </div>
+        <div class="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6 border-b pb-3 sm:pb-4">
+            <img src="image.jpg" alt="Accesorios Azteca" class="h-10 sm:h-14 object-contain">
+            <div>
+                <h1 class="text-xl sm:text-2xl font-bold text-gray-800">Buscador de Inventario</h1>
+                <p class="text-xs sm:text-sm text-gray-500">Vista Lista · Pasa el mouse sobre una fila para ver la foto</p>
             </div>
-            <!-- Enlace a vista Tarjetas -->
-            <a href="index.html" class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors self-start sm:self-auto">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                </svg>
-                Vista Tarjetas
-            </a>
         </div>
 
         <input type="text" id="search" placeholder="Escribe para buscar por código o descripción..." 
@@ -54,6 +45,7 @@
                         <th class="px-3 py-2 font-semibold text-right">Precio Final</th>
                         <th class="px-3 py-2 font-semibold text-right">Precio s/IVA</th>
                         <th class="px-3 py-2 font-semibold text-right">STOCK</th>
+                        <th class="px-3 py-2 font-semibold text-right">Ingreso</th>
                     </tr>
                 </thead>
                 <tbody id="results">
@@ -114,6 +106,24 @@
             previewImg.src = '';
         }
 
+        function formatFecha(fecha) {
+            if (fecha == null || fecha === '') return 'N/A';
+            // Si viene como timestamp (número) de Google Sheets
+            if (typeof fecha === 'number') {
+                const d = new Date(fecha);
+                if (!isNaN(d.getTime())) {
+                    return d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                }
+            }
+            // Si viene como string de fecha
+            const d = new Date(fecha);
+            if (!isNaN(d.getTime())) {
+                return d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            }
+            // Si no se puede parsear, mostrar el valor original
+            return String(fecha);
+        }
+
         document.getElementById('search').addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase().trim();
             const resultsBody = document.getElementById('results');
@@ -140,7 +150,7 @@
             status.innerText = `Resultados encontrados: ${filtered.length}`;
 
             if (filtered.length === 0) {
-                resultsBody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-gray-500">No se encontraron productos.</td></tr>`;
+                resultsBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-500">No se encontraron productos.</td></tr>`;
                 return;
             }
 
@@ -150,6 +160,7 @@
                 const precioFinal = item['PRECIO FINAL'] != null && item['PRECIO FINAL'] !== '' ? Number(item['PRECIO FINAL']).toFixed(2) : '0.00';
                 const precioSinIva = item['PRECIO SIN IVA'] != null && item['PRECIO SIN IVA'] !== '' ? Number(item['PRECIO SIN IVA']).toFixed(2) : '0.00';
                 const stock = (item['EXISTENCIA REAL'] != null && item['EXISTENCIA REAL'] !== '') ? item['EXISTENCIA REAL'] : 'N/A';
+                const fechaIngreso = formatFecha(item['FECHA DE INGRESO']);
 
                 const tr = document.createElement('tr');
                 tr.className = 'product-row border-b border-gray-100 cursor-pointer transition-colors';
@@ -162,6 +173,7 @@
                     <td class="px-3 py-2.5 text-right whitespace-nowrap">
                         <span class="inline-block bg-gray-200 text-gray-800 px-2 py-0.5 rounded text-xs font-semibold">STOCK: ${stock}</span>
                     </td>
+                    <td class="px-3 py-2.5 text-right text-gray-600 whitespace-nowrap text-xs">${fechaIngreso}</td>
                 `;
 
                 tr.addEventListener('mousemove', (ev) => showPhoto(ev, foto, internalCode));
