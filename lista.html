@@ -3,10 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
     <title>Buscador Lista - Accesorios Azteca</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        .product-row:hover {
+        #login.hidden, #panel.hidden { display: none; }
+        body.modo-invitado .col-dueno { display: none; }
+        .product-row:hover,
+        .product-row.activa {
             background-color: #fef2f2;
         }
         #photo-preview {
@@ -20,21 +24,56 @@
     </style>
 </head>
 <body class="bg-gray-100 p-3 sm:p-6">
-    <div class="max-w-6xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md border-t-4 border-red-600 relative">
-        <!-- Header -->
+
+    <!-- ================= Pantalla de entrada ================= -->
+    <div id="login" class="hidden max-w-sm mx-auto mt-10 sm:mt-20 bg-white p-6 rounded-lg shadow-md border-t-4 border-red-600">
+        <div class="flex flex-col items-center mb-6">
+            <img src="image.jpg" alt="Accesorios Azteca" class="h-14 object-contain mb-3">
+            <h1 class="text-xl font-bold text-gray-800">Lista de Inventario</h1>
+            <p class="text-xs text-gray-500">Accesorios Azteca</p>
+        </div>
+
+        <button id="invitado-boton" type="button"
+                class="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-lg transition-colors">Consultar lista</button>
+
+        <div class="flex items-center gap-3 my-5">
+            <div class="flex-1 border-t"></div>
+            <span class="text-xs text-gray-400 uppercase">Acceso</span>
+            <div class="flex-1 border-t"></div>
+        </div>
+
+        <form id="login-form" autocomplete="on">
+            <label for="login-usuario" class="block text-sm font-medium text-gray-700 mb-1">Usuario</label>
+            <input id="login-usuario" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required
+                   class="w-full p-3 border rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-red-500">
+            <label for="login-clave" class="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
+            <input id="login-clave" name="password" type="password" autocomplete="current-password" required
+                   class="w-full p-3 border rounded-lg mb-2 focus:outline-none focus:ring-2 focus:ring-red-500">
+            <p id="login-error" class="text-sm text-red-600 min-h-[1.5rem] mb-2" role="alert"></p>
+            <button id="login-boton" type="submit"
+                    class="w-full border border-gray-300 hover:bg-gray-50 disabled:opacity-60 text-gray-800 font-semibold py-3 rounded-lg transition-colors">Acceso estratégico</button>
+        </form>
+    </div>
+
+    <!-- ================= Lista ================= -->
+    <div id="panel" class="hidden max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md border-t-4 border-red-600 relative">
         <div class="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6 border-b pb-3 sm:pb-4">
             <img src="image.jpg" alt="Accesorios Azteca" class="h-10 sm:h-14 object-contain">
-            <div>
-                <h1 class="text-xl sm:text-2xl font-bold text-gray-800">Buscador de Inventario</h1>
-                <p class="text-xs sm:text-sm text-gray-500">Vista Lista · Pasa el mouse sobre una fila para ver la foto</p>
+            <div class="flex-1 min-w-0">
+                <h1 class="text-xl sm:text-2xl font-bold text-gray-800">Lista de Inventario</h1>
+                <p id="panel-subtitulo" class="text-xs sm:text-sm text-gray-500"></p>
+            </div>
+            <div class="text-right shrink-0">
+                <p id="sesion-etiqueta" class="text-xs text-gray-500"></p>
+                <p id="usuario-nombre" class="text-sm font-semibold text-gray-800"></p>
+                <button id="salir" class="text-xs text-red-600 hover:underline mt-1"></button>
             </div>
         </div>
 
-        <input type="text" id="search" placeholder="Escribe para buscar por código o descripción..." 
+        <input type="text" id="search"
                class="w-full p-3 text-sm sm:text-base border rounded-lg mb-3 sm:mb-4 focus:outline-none focus:ring-2 focus:ring-red-500" disabled>
-        <p id="status" class="text-xs sm:text-sm text-gray-500 mb-4">Cargando base de datos, por favor espera...</p>
+        <p id="status" class="text-xs sm:text-sm text-gray-500 mb-4"></p>
 
-        <!-- Tabla / Lista -->
         <div class="overflow-x-auto">
             <table class="w-full text-sm text-left">
                 <thead class="bg-gray-50 text-gray-600 uppercase text-xs sticky top-0">
@@ -42,143 +81,304 @@
                         <th class="px-3 py-2 font-semibold">Código</th>
                         <th class="px-3 py-2 font-semibold">Cód. Interno</th>
                         <th class="px-3 py-2 font-semibold">Descripción</th>
+                        <th class="px-3 py-2 font-semibold col-dueno">Proveedor</th>
+                        <th class="px-3 py-2 font-semibold text-right col-dueno">Costo</th>
                         <th class="px-3 py-2 font-semibold text-right">Precio Final</th>
                         <th class="px-3 py-2 font-semibold text-right">Precio s/IVA</th>
-                        <th class="px-3 py-2 font-semibold text-right">STOCK</th>
+                        <th class="px-3 py-2 font-semibold text-right">Stock</th>
                         <th class="px-3 py-2 font-semibold text-right">Ingreso</th>
                     </tr>
                 </thead>
-                <tbody id="results">
-                </tbody>
+                <tbody id="results"></tbody>
             </table>
         </div>
 
-        <!-- Preview de foto al hover -->
         <div id="photo-preview" class="hidden fixed z-50 bg-white border-2 border-red-500 rounded-lg shadow-2xl p-2 pointer-events-none" style="width: 280px;">
-            <img id="preview-img" src="" alt="Foto producto" class="w-full h-64 object-contain rounded">
+            <img id="preview-img" alt="Foto producto" class="w-full h-64 object-contain rounded">
             <p id="preview-code" class="text-center text-xs text-gray-600 mt-1 font-medium"></p>
         </div>
     </div>
 
     <script>
         const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbysgQZsOrTj86Hkyl19YxSDUTSh47-3_rzV596DzmRA5xDtvqF64ek26NrSeaCJN1PZjA/exec";
+        const MAX_RESULTADOS = 50;
+        const LLAVE_SESION = 'azteca_sesion';
+
+        // Los datos solo viven en memoria: al cerrar la pestaña o salir desaparecen
         let inventory = [];
+        let modo = null;    // 'dueno' | 'invitado' | null
+        let cargaId = 0;    // evita que una descarga vieja pise a la actual al cambiar de modo
 
-        async function init() {
-            const status = document.getElementById('status');
-            const searchInput = document.getElementById('search');
-            try { localStorage.removeItem('inventory_cache'); } catch(e) {}
+        const $ = id => document.getElementById(id);
+        const statusEl = $('status');
+        const searchInput = $('search');
+        const resultsBody = $('results');
+        const photoPreview = $('photo-preview');
+        const previewImg = $('preview-img');
+        const previewCode = $('preview-code');
 
+        const esDueno = () => modo === 'dueno';
+
+        // ---------- Utilidades ----------
+        function normalizar(texto) {
+            return String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+        }
+        function esc(texto) {
+            return String(texto).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+        function codigoInterno(item) {
+            return item['CODIGO_INTERNO'] || item['CODIGO INTERNO'] || '';
+        }
+        function formatFecha(fecha) {
+            if (fecha == null || fecha === '') return 'N/A';
+            const d = new Date(fecha);
+            return isNaN(d.getTime()) ? String(fecha) : d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        }
+        function dinero(valor) {
+            const n = Number(valor);
+            return (valor != null && valor !== '' && !isNaN(n)) ? n.toFixed(2) : '0.00';
+        }
+        function prepararInventario(datos) {
+            datos.forEach(item => {
+                const campos = [item.DESCRIPCION, item.CODIGO, codigoInterno(item)];
+                if (esDueno()) campos.push(item.PROVEEDOR);
+                item._busca = normalizar(campos.join(' '));
+            });
+            return datos;
+        }
+        function mensajeListo(extra) {
+            statusEl.innerText = `Inventario listo (${inventory.length.toLocaleString('es-MX')} productos). ${extra}`;
+        }
+
+        // ---------- Comunicación con Apps Script ----------
+        async function api(cuerpo) {
+            const res = await fetch(WEB_APP_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita bloqueo CORS
+                body: JSON.stringify(cuerpo)
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+        }
+
+        // Se recuerda el modo hasta cerrar la pestaña (la sesión de dueño vence en el servidor a las 6 h)
+        function leerSesion() { try { return JSON.parse(sessionStorage.getItem(LLAVE_SESION)); } catch (e) { return null; } }
+        function guardarSesion(s) { try { sessionStorage.setItem(LLAVE_SESION, JSON.stringify(s)); } catch (e) {} }
+        function borrarSesion() { try { sessionStorage.removeItem(LLAVE_SESION); } catch (e) {} }
+
+        // ---------- Pantallas ----------
+        function limpiarDatos() {
+            cargaId++;
+            inventory = [];
+            resultsBody.innerHTML = '';
+            searchInput.value = '';
+            hidePhoto();
+        }
+
+        function mostrarLogin(mensaje) {
+            limpiarDatos();
+            modo = null;
+            document.body.classList.remove('modo-invitado');
+            $('panel').classList.add('hidden');
+            $('login').classList.remove('hidden');
+            $('login-error').textContent = mensaje || '';
+            $('login-clave').value = '';
+        }
+
+        function mostrarPanel(nuevoModo, nombre) {
+            limpiarDatos();
+            modo = nuevoModo;
+            document.body.classList.toggle('modo-invitado', !esDueno());
+            $('login').classList.add('hidden');
+            $('panel').classList.remove('hidden');
+            $('panel-subtitulo').textContent = esDueno()
+                ? 'Vista dirección · Pasa el mouse (o toca en el celular) una fila para ver la foto'
+                : 'Consulta general · Pasa el mouse (o toca en el celular) una fila para ver la foto';
+            $('sesion-etiqueta').textContent = esDueno() ? 'Sesión de' : 'Modo';
+            $('usuario-nombre').textContent = esDueno() ? (nombre || '') : 'Consulta general';
+            $('salir').textContent = esDueno() ? 'Cerrar sesión' : 'Acceso';
+            searchInput.placeholder = esDueno()
+                ? 'Busca por código, descripción o proveedor...'
+                : 'Busca por código o descripción...';
+            searchInput.disabled = true;
+            statusEl.innerText = 'Descargando inventario, puede tardar un poco...';
+            return cargaId;
+        }
+
+        function datosListos(datos) {
+            inventory = prepararInventario(datos);
+            searchInput.disabled = false;
+            searchInput.focus();
+            mensajeListo('¡Ya puedes buscar!');
+        }
+
+        // Dueños: datos completos (con costo y proveedor) desde doPost, con token
+        async function cargarDueno(sesion) {
+            const id = mostrarPanel('dueno', sesion.nombre);
             try {
-                status.innerText = "Descargando inventario...";
-                const res = await fetch(WEB_APP_URL);
-                inventory = await res.json();
-                status.innerText = `Inventario listo (${inventory.length.toLocaleString()} productos). ¡Ya puedes buscar!`;
-                searchInput.disabled = false;
+                const r = await api({ accion: 'datos', token: sesion.token });
+                if (id !== cargaId) return;
+                if (!r.ok) {
+                    borrarSesion();
+                    mostrarLogin(r.error === 'sesion' ? 'Tu sesión expiró. Vuelve a entrar.' : (r.error || 'No se pudo cargar el inventario.'));
+                    return;
+                }
+                datosListos(r.datos);
             } catch (err) {
-                status.innerText = "Error al conectar con la base de datos.";
+                if (id !== cargaId) return;
                 console.error(err);
+                statusEl.innerText = 'Error al conectar con la base de datos. Recarga la página para intentar de nuevo.';
             }
         }
-        init();
 
-        const photoPreview = document.getElementById('photo-preview');
-        const previewImg = document.getElementById('preview-img');
-        const previewCode = document.getElementById('preview-code');
-
-        function showPhoto(e, fotoUrl, codigoInterno) {
-            if (!fotoUrl || fotoUrl === '#N/A' || fotoUrl === '') {
-                photoPreview.classList.add('hidden');
-                return;
+        // Invitados: datos públicos (sin costo ni proveedor) desde doGet, igual que index.html
+        async function cargarInvitado() {
+            guardarSesion({ modo: 'invitado' });
+            const id = mostrarPanel('invitado');
+            try {
+                const res = await fetch(WEB_APP_URL);
+                const datos = await res.json();
+                if (id !== cargaId) return;
+                if (!Array.isArray(datos)) throw new Error('Respuesta inesperada del servidor');
+                datosListos(datos);
+            } catch (err) {
+                if (id !== cargaId) return;
+                console.error(err);
+                statusEl.innerText = 'Error al conectar con la base de datos. Recarga la página para intentar de nuevo.';
             }
-            previewImg.src = fotoUrl;
-            previewCode.textContent = codigoInterno ? `Cód. Interno: ${codigoInterno}` : '';
-            photoPreview.classList.remove('hidden');
+        }
 
-            const x = e.clientX + 20;
-            const y = e.clientY - 100;
-            photoPreview.style.left = Math.min(x, window.innerWidth - 300) + 'px';
-            photoPreview.style.top = Math.max(10, Math.min(y, window.innerHeight - 320)) + 'px';
+        $('invitado-boton').addEventListener('click', cargarInvitado);
+
+        $('login-form').addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            const usuario = $('login-usuario').value.trim();
+            const clave = $('login-clave').value;
+            if (!usuario || !clave) return;
+
+            const boton = $('login-boton');
+            boton.disabled = true;
+            boton.textContent = 'Verificando...';
+            $('login-error').textContent = '';
+            try {
+                const r = await api({ accion: 'login', usuario, clave });
+                if (r.ok) {
+                    const sesion = { modo: 'dueno', token: r.token, nombre: r.nombre };
+                    guardarSesion(sesion);
+                    $('login-clave').value = '';
+                    cargarDueno(sesion);
+                } else {
+                    $('login-error').textContent = r.error || 'Usuario o contraseña incorrectos.';
+                    $('login-clave').value = '';
+                    $('login-clave').focus();
+                }
+            } catch (err) {
+                console.error(err);
+                $('login-error').textContent = 'No se pudo conectar. Revisa tu internet.';
+            } finally {
+                boton.disabled = false;
+                boton.textContent = 'Acceso estratégico';
+            }
+        });
+
+        $('salir').addEventListener('click', () => {
+            const s = leerSesion();
+            const eraDueno = esDueno();
+            borrarSesion();
+            if (eraDueno && s && s.token) api({ accion: 'logout', token: s.token }).catch(() => {});
+            mostrarLogin(eraDueno ? 'Sesión cerrada.' : '');
+            if (!eraDueno) $('login-usuario').focus();
+        });
+
+        // ---------- Vista previa de foto ----------
+        let filaActiva = null;
+
+        function showPhoto(x, y, fotoUrl, interno) {
+            if (!fotoUrl || fotoUrl === '#N/A') { hidePhoto(); return; }
+            if (previewImg.getAttribute('src') !== fotoUrl) previewImg.src = fotoUrl;
+            previewCode.textContent = interno ? `Cód. Interno: ${interno}` : '';
+            photoPreview.classList.remove('hidden');
+            const ancho = Math.min(280, window.innerWidth - 20);
+            photoPreview.style.width = ancho + 'px';
+            photoPreview.style.left = Math.max(10, Math.min(x + 20, window.innerWidth - ancho - 10)) + 'px';
+            photoPreview.style.top = Math.max(10, Math.min(y - 100, window.innerHeight - 320)) + 'px';
         }
 
         function hidePhoto() {
             photoPreview.classList.add('hidden');
-            previewImg.src = '';
+            previewImg.removeAttribute('src');
+            if (filaActiva) filaActiva.classList.remove('activa');
+            filaActiva = null;
         }
 
-        function formatFecha(fecha) {
-            if (fecha == null || fecha === '') return 'N/A';
-            // Si viene como timestamp (número) de Google Sheets
-            if (typeof fecha === 'number') {
-                const d = new Date(fecha);
-                if (!isNaN(d.getTime())) {
-                    return d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                }
-            }
-            // Si viene como string de fecha
-            const d = new Date(fecha);
-            if (!isNaN(d.getTime())) {
-                return d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            }
-            // Si no se puede parsear, mostrar el valor original
-            return String(fecha);
-        }
+        resultsBody.addEventListener('mousemove', (ev) => {
+            const tr = ev.target.closest('tr.product-row');
+            if (tr) showPhoto(ev.clientX, ev.clientY, tr.dataset.foto, tr.dataset.interno);
+        });
+        resultsBody.addEventListener('mouseleave', hidePhoto);
+        resultsBody.addEventListener('click', (ev) => {
+            const tr = ev.target.closest('tr.product-row');
+            if (!tr) return;
+            if (filaActiva === tr && !photoPreview.classList.contains('hidden')) { hidePhoto(); return; }
+            hidePhoto();
+            filaActiva = tr;
+            tr.classList.add('activa');
+            showPhoto(ev.clientX, ev.clientY, tr.dataset.foto, tr.dataset.interno);
+        });
+        window.addEventListener('scroll', hidePhoto, { passive: true });
 
-        document.getElementById('search').addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase().trim();
-            const resultsBody = document.getElementById('results');
-            const status = document.getElementById('status');
-            resultsBody.innerHTML = '';
+        // ---------- Búsqueda ----------
+        function buscar() {
+            const query = normalizar(searchInput.value);
             hidePhoto();
 
             if (query.length < 2) {
-                status.innerText = `Inventario listo (${inventory.length.toLocaleString()} productos). Escribe al menos 2 letras.`;
+                resultsBody.innerHTML = '';
+                mensajeListo('Escribe al menos 2 letras.');
                 return;
             }
 
-            const filtered = inventory.filter(item => {
-                const desc = item.DESCRIPCION ? String(item.DESCRIPCION).toLowerCase().trim() : '';
-                const code = item.CODIGO ? String(item.CODIGO).toLowerCase().trim() : '';
-                const intCode1 = item['CODIGO INTERNO'] ? String(item['CODIGO INTERNO']).toLowerCase().trim() : '';
-                const intCode2 = item['CODIGO_INTERNO'] ? String(item['CODIGO_INTERNO']).toLowerCase().trim() : '';
-                const queryWords = query.split(/\s+/);
-                return queryWords.every(word =>
-                    desc.includes(word) || code.includes(word) || intCode1.includes(word) || intCode2.includes(word)
-                );
-            }).slice(0, 50);
+            const palabras = query.split(/\s+/);
+            const encontrados = [];
+            for (let i = 0; i < inventory.length && encontrados.length < MAX_RESULTADOS; i++) {
+                if (palabras.every(p => inventory[i]._busca.includes(p))) encontrados.push(inventory[i]);
+            }
 
-            status.innerText = `Resultados encontrados: ${filtered.length}`;
+            statusEl.innerText = `Resultados encontrados: ${encontrados.length}${encontrados.length === MAX_RESULTADOS ? ' (se muestran los primeros 50; escribe más para afinar)' : ''}`;
 
-            if (filtered.length === 0) {
-                resultsBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-500">No se encontraron productos.</td></tr>`;
+            const dueno = esDueno();
+            if (encontrados.length === 0) {
+                resultsBody.innerHTML = `<tr><td colspan="${dueno ? 9 : 7}" class="text-center py-8 text-gray-500">No se encontraron productos.</td></tr>`;
                 return;
             }
 
-            filtered.forEach(item => {
-                const internalCode = item['CODIGO_INTERNO'] || item['CODIGO INTERNO'] || '—';
-                const foto = item.FOTO_URL || '';
-                const precioFinal = item['PRECIO FINAL'] != null && item['PRECIO FINAL'] !== '' ? Number(item['PRECIO FINAL']).toFixed(2) : '0.00';
-                const precioSinIva = item['PRECIO SIN IVA'] != null && item['PRECIO SIN IVA'] !== '' ? Number(item['PRECIO SIN IVA']).toFixed(2) : '0.00';
+            resultsBody.innerHTML = encontrados.map(item => {
+                const interno = codigoInterno(item) || '—';
                 const stock = (item['EXISTENCIA REAL'] != null && item['EXISTENCIA REAL'] !== '') ? item['EXISTENCIA REAL'] : 'N/A';
-                const fechaIngreso = formatFecha(item['FECHA DE INGRESO']);
+                const celdasDueno = dueno ? `
+                        <td class="px-3 py-2.5 text-gray-700 col-dueno">${esc(item.PROVEEDOR || '—')}</td>
+                        <td class="px-3 py-2.5 text-right font-semibold text-amber-700 whitespace-nowrap col-dueno">$${dinero(item.COSTO)}</td>` : '';
+                return `
+                    <tr class="product-row border-b border-gray-100 cursor-pointer transition-colors"
+                        data-foto="${esc(item.FOTO_URL || '')}" data-interno="${esc(interno)}">
+                        <td class="px-3 py-2.5 font-medium text-gray-800 whitespace-nowrap">${esc(item.CODIGO || '—')}</td>
+                        <td class="px-3 py-2.5 text-gray-700 whitespace-nowrap">${esc(interno)}</td>
+                        <td class="px-3 py-2.5 text-gray-800">${esc(item.DESCRIPCION || 'Sin descripción')}</td>${celdasDueno}
+                        <td class="px-3 py-2.5 text-right font-bold text-red-600 whitespace-nowrap">$${dinero(item['PRECIO FINAL'])}</td>
+                        <td class="px-3 py-2.5 text-right text-gray-600 whitespace-nowrap">$${dinero(item['PRECIO SIN IVA'])}</td>
+                        <td class="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-gray-800">${esc(stock)}</td>
+                        <td class="px-3 py-2.5 text-right text-gray-600 whitespace-nowrap text-xs">${esc(formatFecha(item['FECHA DE INGRESO']))}</td>
+                    </tr>`;
+            }).join('');
+        }
 
-                const tr = document.createElement('tr');
-                tr.className = 'product-row border-b border-gray-100 cursor-pointer transition-colors';
-                tr.innerHTML = `
-                    <td class="px-3 py-2.5 font-medium text-gray-800 whitespace-nowrap">${item.CODIGO || '—'}</td>
-                    <td class="px-3 py-2.5 text-gray-700 whitespace-nowrap">${internalCode}</td>
-                    <td class="px-3 py-2.5 text-gray-800">${item.DESCRIPCION || 'Sin descripción'}</td>
-                    <td class="px-3 py-2.5 text-right font-bold text-red-600 whitespace-nowrap">$${precioFinal}</td>
-                    <td class="px-3 py-2.5 text-right text-gray-600 whitespace-nowrap">$${precioSinIva}</td>
-                    <td class="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-gray-800">${stock}</td>
-                    <td class="px-3 py-2.5 text-right text-gray-600 whitespace-nowrap text-xs">${fechaIngreso}</td>
-                `;
+        searchInput.addEventListener('input', buscar);
 
-                tr.addEventListener('mousemove', (ev) => showPhoto(ev, foto, internalCode));
-                tr.addEventListener('mouseleave', hidePhoto);
-                resultsBody.appendChild(tr);
-            });
-        });
+        // ---------- Inicio ----------
+        const sesionGuardada = leerSesion();
+        if (sesionGuardada && sesionGuardada.modo === 'invitado') cargarInvitado();
+        else if (sesionGuardada && sesionGuardada.token) cargarDueno(sesionGuardada);
+        else mostrarLogin('');
     </script>
 </body>
 </html>
