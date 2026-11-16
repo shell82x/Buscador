@@ -57,12 +57,20 @@
 
     <!-- ================= Lista ================= -->
     <div id="panel" class="hidden max-w-7xl mx-auto bg-white p-4 sm:p-6 rounded-lg shadow-md border-t-4 border-red-600 relative">
-        <div class="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6 border-b pb-3 sm:pb-4">
+        <div class="flex flex-wrap items-center gap-3 sm:gap-4 mb-4 sm:mb-6 border-b pb-3 sm:pb-4">
             <img src="image.jpg" alt="Accesorios Azteca" class="h-10 sm:h-14 object-contain">
             <div class="flex-1 min-w-0">
                 <h1 class="text-xl sm:text-2xl font-bold text-gray-800">Lista de Inventario</h1>
                 <p id="panel-subtitulo" class="text-xs sm:text-sm text-gray-500"></p>
             </div>
+            <!-- Solo visible con Acceso estratégico -->
+            <button id="excel-boton" type="button" disabled
+                    class="col-dueno shrink-0 inline-flex items-center gap-2 bg-green-700 hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16"/>
+                </svg>
+                <span id="excel-texto">Descargar Excel</span>
+            </button>
             <div class="text-right shrink-0">
                 <p id="sesion-etiqueta" class="text-xs text-gray-500"></p>
                 <p id="usuario-nombre" class="text-sm font-semibold text-gray-800"></p>
@@ -201,6 +209,7 @@
                 ? 'Busca por código, descripción o proveedor...'
                 : 'Busca por código o descripción...';
             searchInput.disabled = true;
+            $('excel-boton').disabled = true;
             statusEl.innerText = 'Descargando inventario, puede tardar un poco...';
             return cargaId;
         }
@@ -208,6 +217,7 @@
         function datosListos(datos) {
             inventory = prepararInventario(datos);
             searchInput.disabled = false;
+            $('excel-boton').disabled = !esDueno();
             searchInput.focus();
             mensajeListo('¡Ya puedes buscar!');
         }
@@ -373,6 +383,208 @@
         }
 
         searchInput.addEventListener('input', buscar);
+
+        // ---------- Descarga de lista de precios en Excel (solo Acceso estratégico) ----------
+        const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+        const SITIO_TEXTO = 'www.accesoriosazteca.com';
+        const SITIO_URL = 'https://www.accesoriosazteca.com';
+        const COLOR_MARCA = 'FFDC2626';   // rojo de la página
+        const COLOR_TEXTO = 'FF1F2937';
+
+        // La librería de Excel solo se descarga la primera vez que alguien presiona el botón
+        function cargarExcelJS() {
+            if (window.ExcelJS) return Promise.resolve();
+            return new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = EXCELJS_URL;
+                s.onload = () => resolve();
+                s.onerror = () => reject(new Error('No se pudo cargar la librería de Excel. Revisa tu internet.'));
+                document.head.appendChild(s);
+            });
+        }
+
+        function numeroOVacio(valor) {
+            if (valor == null || valor === '') return null;
+            const n = Number(valor);
+            return isNaN(n) ? null : n;
+        }
+
+        // Solo productos con código interno, ordenados de forma natural: 001-001, 001-002 … N1 … N4500
+        function productosParaExcel() {
+            return inventory
+                .map(item => ({
+                    codigo: String(item.CODIGO == null ? '' : item.CODIGO).trim(),
+                    interno: String(codigoInterno(item)).trim(),
+                    descripcion: String(item.DESCRIPCION || '').trim(),
+                    precio: numeroOVacio(item['PRECIO FINAL']),
+                    sinIva: numeroOVacio(item['PRECIO SIN IVA'])
+                }))
+                .filter(p => p.interno !== '' && p.interno !== '#N/A')
+                .sort((a, b) => a.interno.localeCompare(b.interno, 'es', { numeric: true, sensitivity: 'base' }));
+        }
+
+        async function cargarLogo() {
+            const res = await fetch('image.jpg');
+            if (!res.ok) throw new Error('No se encontró el logotipo (image.jpg).');
+            const buffer = await res.arrayBuffer();
+            const blobUrl = URL.createObjectURL(new Blob([buffer]));
+            const medidas = await new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => resolve({ ancho: img.naturalWidth, alto: img.naturalHeight });
+                img.onerror = () => resolve({ ancho: 1600, alto: 640 });
+                img.src = blobUrl;
+            });
+            URL.revokeObjectURL(blobUrl);
+            return { buffer, proporcion: medidas.alto / medidas.ancho };
+        }
+
+        function construirPortada(wb, logoId, proporcion, fechaTexto, total) {
+            const hoja = wb.addWorksheet('Portada', {
+                views: [{ showGridLines: false }],
+                pageSetup: { paperSize: 1, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 1, horizontalCentered: true }
+            });
+            hoja.columns = [{ width: 6 }, { width: 22 }, { width: 22 }, { width: 22 }, { width: 6 }];
+
+            // Franjas rojas arriba y abajo
+            [1, 22].forEach(fila => {
+                hoja.getRow(fila).height = 10;
+                for (let c = 1; c <= 5; c++) {
+                    hoja.getCell(fila, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_MARCA } };
+                }
+            });
+
+            // Logotipo centrado (con enlace a la página)
+            const anchoLogo = 420;
+            hoja.addImage(logoId, {
+                tl: { col: 1.15, row: 2.3 },
+                ext: { width: anchoLogo, height: Math.round(anchoLogo * proporcion) },
+                hyperlinks: { hyperlink: SITIO_URL, tooltip: SITIO_TEXTO }
+            });
+
+            const linea = (fila, valor, fuente, alto) => {
+                hoja.mergeCells(fila, 2, fila, 4);
+                const celda = hoja.getCell(fila, 2);
+                celda.value = valor;
+                celda.font = fuente;
+                celda.alignment = { horizontal: 'center', vertical: 'middle' };
+                if (alto) hoja.getRow(fila).height = alto;
+            };
+            linea(13, 'LISTA DE PRECIOS', { name: 'Calibri', size: 30, bold: true, color: { argb: COLOR_MARCA } }, 42);
+            linea(15, 'Actualizada al ' + fechaTexto, { name: 'Calibri', size: 14, color: { argb: COLOR_TEXTO } }, 22);
+            linea(16, total.toLocaleString('es-MX') + ' productos', { name: 'Calibri', size: 12, color: { argb: 'FF6B7280' } }, 20);
+            linea(19, { text: SITIO_TEXTO, hyperlink: SITIO_URL, tooltip: 'Visitar ' + SITIO_TEXTO },
+                  { name: 'Calibri', size: 16, bold: true, underline: true, color: { argb: 'FF1D4ED8' } }, 26);
+        }
+
+        function construirLista(wb, logoId, proporcion, fechaTexto, productos) {
+            const FILA_TITULOS = 5;
+            const hoja = wb.addWorksheet('Lista de precios', {
+                views: [{ state: 'frozen', xSplit: 0, ySplit: FILA_TITULOS, topLeftCell: 'A' + (FILA_TITULOS + 1), activeCell: 'A' + (FILA_TITULOS + 1) }],
+                pageSetup: {
+                    paperSize: 1, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+                    horizontalCentered: true, printTitlesRow: FILA_TITULOS + ':' + FILA_TITULOS,
+                    margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.6, header: 0.2, footer: 0.3 }
+                },
+                headerFooter: { oddFooter: '&L&8Accesorios Azteca · ' + SITIO_TEXTO + '&R&8Página &P de &N' }
+            });
+            hoja.columns = [{ width: 22 }, { width: 14 }, { width: 62 }, { width: 14 }, { width: 14 }];
+
+            // Encabezado: logotipo + título + fecha + enlace
+            [1, 2, 3].forEach(f => { hoja.getRow(f).height = 22; });
+            hoja.getRow(4).height = 8;
+            const anchoLogo = 165;
+            hoja.addImage(logoId, {
+                tl: { col: 0.08, row: 0.15 },
+                ext: { width: anchoLogo, height: Math.round(anchoLogo * proporcion) },
+                hyperlinks: { hyperlink: SITIO_URL, tooltip: SITIO_TEXTO }
+            });
+            const encabezado = (fila, valor, fuente) => {
+                hoja.mergeCells(fila, 3, fila, 5);
+                const celda = hoja.getCell(fila, 3);
+                celda.value = valor;
+                celda.font = fuente;
+                celda.alignment = { horizontal: 'right', vertical: 'middle' };
+            };
+            encabezado(1, 'LISTA DE PRECIOS', { name: 'Calibri', size: 18, bold: true, color: { argb: COLOR_MARCA } });
+            encabezado(2, 'Actualizada al ' + fechaTexto, { name: 'Calibri', size: 11, color: { argb: COLOR_TEXTO } });
+            encabezado(3, { text: SITIO_TEXTO, hyperlink: SITIO_URL, tooltip: 'Visitar ' + SITIO_TEXTO },
+                       { name: 'Calibri', size: 11, bold: true, underline: true, color: { argb: 'FF1D4ED8' } });
+            for (let c = 1; c <= 5; c++) {
+                hoja.getCell(4, c).border = { bottom: { style: 'medium', color: { argb: COLOR_MARCA } } };
+            }
+
+            // Títulos de columna (quedan fijos al desplazarse y se repiten al imprimir)
+            const titulos = hoja.getRow(FILA_TITULOS);
+            titulos.values = ['CÓDIGO DE PRODUCTO', 'CÓDIGO', 'DESCRIPCIÓN', 'PRECIO', 'PRECIO - IVA'];
+            titulos.height = 24;
+            titulos.eachCell(celda => {
+                celda.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+                celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_MARCA } };
+                celda.alignment = { horizontal: 'center', vertical: 'middle' };
+                celda.border = { left: { style: 'thin', color: { argb: 'FFFFFFFF' } }, right: { style: 'thin', color: { argb: 'FFFFFFFF' } } };
+            });
+
+            // Productos
+            const formatoDinero = '"$"#,##0.00';
+            const gris = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+            productos.forEach((p, i) => {
+                const fila = hoja.getRow(FILA_TITULOS + 1 + i);
+                fila.values = [p.codigo, p.interno, p.descripcion, p.precio, p.sinIva];
+                fila.getCell(1).alignment = { horizontal: 'left' };
+                fila.getCell(2).alignment = { horizontal: 'center' };
+                fila.getCell(4).numFmt = formatoDinero;
+                fila.getCell(5).numFmt = formatoDinero;
+                if (i % 2 === 1) for (let c = 1; c <= 5; c++) fila.getCell(c).fill = gris;
+            });
+
+            if (productos.length) {
+                hoja.autoFilter = { from: { row: FILA_TITULOS, column: 1 }, to: { row: FILA_TITULOS + productos.length, column: 5 } };
+            }
+        }
+
+        async function descargarExcel() {
+            if (!esDueno() || !inventory.length) return;
+            const boton = $('excel-boton');
+            const texto = $('excel-texto');
+            boton.disabled = true;
+            texto.textContent = 'Generando...';
+            try {
+                const productos = productosParaExcel();
+                if (!productos.length) throw new Error('No hay productos con código interno para exportar.');
+
+                await cargarExcelJS();
+                const logo = await cargarLogo();
+                const hoy = new Date();
+                const fechaTexto = hoy.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
+
+                const wb = new ExcelJS.Workbook();
+                wb.creator = 'Accesorios Azteca';
+                wb.created = hoy;
+                const logoId = wb.addImage({ buffer: logo.buffer, extension: 'jpeg' });
+
+                construirPortada(wb, logoId, logo.proporcion, fechaTexto, productos.length);
+                construirLista(wb, logoId, logo.proporcion, fechaTexto, productos);
+
+                const datos = await wb.xlsx.writeBuffer();
+                const blob = new Blob([datos], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const enlace = document.createElement('a');
+                const fechaArchivo = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+                enlace.href = URL.createObjectURL(blob);
+                enlace.download = `Lista de precios Accesorios Azteca ${fechaArchivo}.xlsx`;
+                document.body.appendChild(enlace);
+                enlace.click();
+                setTimeout(() => { URL.revokeObjectURL(enlace.href); enlace.remove(); }, 2000);
+                statusEl.innerText = `Excel descargado: ${productos.length.toLocaleString('es-MX')} productos con código interno.`;
+            } catch (err) {
+                console.error(err);
+                statusEl.innerText = 'No se pudo generar el Excel: ' + err.message;
+            } finally {
+                texto.textContent = 'Descargar Excel';
+                boton.disabled = !esDueno() || !inventory.length;
+            }
+        }
+
+        $('excel-boton').addEventListener('click', descargarExcel);
 
         // ---------- Inicio ----------
         const sesionGuardada = leerSesion();
