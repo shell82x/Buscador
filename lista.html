@@ -388,34 +388,76 @@
         const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
         const SITIO_TEXTO = 'www.accesoriosazteca.com';
         const SITIO_URL = 'https://www.accesoriosazteca.com';
-        const COLOR_MARCA = 'FFDC2626';   // rojo de la página
-        const COLOR_TEXTO = 'FF1F2937';
 
-        // La librería de Excel solo se descarga la primera vez que alguien presiona el botón
-        function cargarExcelJS() {
-            if (window.ExcelJS) return Promise.resolve();
+        const JSZIP_URL = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+
+        // Las librerías solo se descargan la primera vez que alguien presiona el botón
+        function cargarScript(url, global) {
+            if (window[global]) return Promise.resolve();
             return new Promise((resolve, reject) => {
                 const s = document.createElement('script');
-                s.src = EXCELJS_URL;
+                s.src = url;
                 s.onload = () => resolve();
                 s.onerror = () => reject(new Error('No se pudo cargar la librería de Excel. Revisa tu internet.'));
                 document.head.appendChild(s);
             });
         }
+        const cargarExcelJS = () => cargarScript(EXCELJS_URL, 'ExcelJS');
+
+        // Posición del logo dentro de la celda A1 (columna de 21 caracteres, fila de 52 puntos), en píxeles
+        function anclaLogo(proporcion) {
+            const celdaAncho = 21 * 7 + 5;        // 152 px
+            const celdaAlto = 52 * 96 / 72;       // 69.3 px
+            const ancho = 140;
+            const alto = Math.round(ancho * proporcion);
+            return { celdaAncho, celdaAlto, ancho, alto, x: (celdaAncho - ancho) / 2, y: (celdaAlto - alto) / 2 };
+        }
+
+        // ExcelJS guarda la imagen con un anclaje que Excel corrige o descarta y con tamaño interno en cero,
+        // por lo que en Excel, celulares y vistas previas el logo puede no aparecer.
+        // Aquí se reescribe el anclaje del logo exactamente como lo guarda Excel al insertar una imagen.
+        async function repararImagenes(buffer, ancla) {
+            try {
+                await cargarScript(JSZIP_URL, 'JSZip');
+                const zip = await JSZip.loadAsync(buffer);
+                const EMU = 9525;  // unidades de Excel por píxel
+                const x1 = Math.round(ancla.x * EMU), y1 = Math.round(ancla.y * EMU);
+                const x2 = Math.round((ancla.x + ancla.ancho) * EMU), y2 = Math.round((ancla.y + ancla.alto) * EMU);
+                const dibujos = Object.keys(zip.files).filter(n => /^xl\/drawings\/drawing\d+\.xml$/.test(n));
+                for (const nombre of dibujos) {
+                    let xml = await zip.file(nombre).async('string');
+                    xml = xml.replace(/<xdr:(oneCellAnchor|twoCellAnchor)\b[^>]*>[\s\S]*?<\/xdr:\1>/, original => {
+                        const pic = original.match(/<xdr:pic>[\s\S]*?<\/xdr:pic>/);
+                        if (!pic) return original;
+                        const picFijo = pic[0].replace(/<a:xfrm>[\s\S]*?<\/a:xfrm>/,
+                            `<a:xfrm><a:off x="${x1}" y="${y1}"/><a:ext cx="${x2 - x1}" cy="${y2 - y1}"/></a:xfrm>`);
+                        return '<xdr:twoCellAnchor editAs="oneCell">' +
+                            `<xdr:from><xdr:col>0</xdr:col><xdr:colOff>${x1}</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>${y1}</xdr:rowOff></xdr:from>` +
+                            `<xdr:to><xdr:col>0</xdr:col><xdr:colOff>${x2}</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>${y2}</xdr:rowOff></xdr:to>` +
+                            picFijo + '<xdr:clientData/></xdr:twoCellAnchor>';
+                    });
+                    zip.file(nombre, xml);
+                }
+                return await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+            } catch (err) {
+                console.warn('No se pudo ajustar la imagen; se entrega el archivo sin ese ajuste.', err);
+                return buffer;
+            }
+        }
 
         function numeroOVacio(valor) {
             if (valor == null || valor === '') return null;
             const n = Number(valor);
-            return isNaN(n) ? null : n;
+            return isNaN(n) ? null : Math.round(n * 100) / 100;   // a centavos, como se ve en pantalla
         }
 
         // Solo productos con código interno, ordenados de forma natural: 001-001, 001-002 … N1 … N4500
         function productosParaExcel() {
             return inventory
                 .map(item => ({
-                    codigo: String(item.CODIGO == null ? '' : item.CODIGO).trim(),
-                    interno: String(codigoInterno(item)).trim(),
-                    descripcion: String(item.DESCRIPCION || '').trim(),
+                    codigo: String(item.CODIGO == null ? '' : item.CODIGO).replace(/\s+/g, ' ').trim(),
+                    interno: String(codigoInterno(item)).replace(/\s+/g, ' ').trim(),
+                    descripcion: String(item.DESCRIPCION || '').replace(/\s+/g, ' ').trim(),
                     precio: numeroOVacio(item['PRECIO FINAL']),
                     sinIva: numeroOVacio(item['PRECIO SIN IVA'])
                 }))
@@ -438,103 +480,74 @@
             return { buffer, proporcion: medidas.alto / medidas.ancho };
         }
 
-        function construirPortada(wb, logoId, proporcion, fechaTexto, total) {
-            const hoja = wb.addWorksheet('Portada', {
-                views: [{ showGridLines: false }],
-                pageSetup: { paperSize: 1, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 1, horizontalCentered: true }
-            });
-            hoja.columns = [{ width: 6 }, { width: 22 }, { width: 22 }, { width: 22 }, { width: 6 }];
+        // Catálogo en una sola pestaña, con el formato del CATALOGO de la empresa
+        function construirCatalogo(wb, logoId, proporcion, fechaTexto, productos) {
+            const FILA_TITULOS = 3;
+            const ROJO = 'FFFF0000';
+            const BORDE = { style: 'thin', color: { argb: 'FF7F7F7F' } };
+            const BORDES = { top: BORDE, left: BORDE, bottom: BORDE, right: BORDE };
+            const CONTABLE = '_-"$"* #,##0.00_-;-"$"* #,##0.00_-;_-"$"* "-"??_-;_-@_-';
 
-            // Franjas rojas arriba y abajo
-            [1, 22].forEach(fila => {
-                hoja.getRow(fila).height = 10;
-                for (let c = 1; c <= 5; c++) {
-                    hoja.getCell(fila, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_MARCA } };
-                }
-            });
-
-            // Logotipo centrado (con enlace a la página)
-            const anchoLogo = 420;
-            hoja.addImage(logoId, {
-                tl: { col: 1.15, row: 2.3 },
-                ext: { width: anchoLogo, height: Math.round(anchoLogo * proporcion) },
-                hyperlinks: { hyperlink: SITIO_URL, tooltip: SITIO_TEXTO }
-            });
-
-            const linea = (fila, valor, fuente, alto) => {
-                hoja.mergeCells(fila, 2, fila, 4);
-                const celda = hoja.getCell(fila, 2);
-                celda.value = valor;
-                celda.font = fuente;
-                celda.alignment = { horizontal: 'center', vertical: 'middle' };
-                if (alto) hoja.getRow(fila).height = alto;
-            };
-            linea(13, 'LISTA DE PRECIOS', { name: 'Calibri', size: 30, bold: true, color: { argb: COLOR_MARCA } }, 42);
-            linea(15, 'Actualizada al ' + fechaTexto, { name: 'Calibri', size: 14, color: { argb: COLOR_TEXTO } }, 22);
-            linea(16, total.toLocaleString('es-MX') + ' productos', { name: 'Calibri', size: 12, color: { argb: 'FF6B7280' } }, 20);
-            linea(19, { text: SITIO_TEXTO, hyperlink: SITIO_URL, tooltip: 'Visitar ' + SITIO_TEXTO },
-                  { name: 'Calibri', size: 16, bold: true, underline: true, color: { argb: 'FF1D4ED8' } }, 26);
-        }
-
-        function construirLista(wb, logoId, proporcion, fechaTexto, productos) {
-            const FILA_TITULOS = 5;
-            const hoja = wb.addWorksheet('Lista de precios', {
-                views: [{ state: 'frozen', xSplit: 0, ySplit: FILA_TITULOS, topLeftCell: 'A' + (FILA_TITULOS + 1), activeCell: 'A' + (FILA_TITULOS + 1) }],
+            const hoja = wb.addWorksheet('CATALOGO', {
+                views: [{ state: 'frozen', xSplit: 0, ySplit: FILA_TITULOS, topLeftCell: 'A' + (FILA_TITULOS + 1), activeCell: 'A' + (FILA_TITULOS + 1), showGridLines: false }],
                 pageSetup: {
                     paperSize: 1, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
                     horizontalCentered: true, printTitlesRow: FILA_TITULOS + ':' + FILA_TITULOS,
-                    margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.6, header: 0.2, footer: 0.3 }
+                    margins: { left: 0.35, right: 0.35, top: 0.45, bottom: 0.6, header: 0.2, footer: 0.3 }
                 },
-                headerFooter: { oddFooter: '&L&8Accesorios Azteca · ' + SITIO_TEXTO + '&R&8Página &P de &N' }
+                headerFooter: {
+                    oddFooter: '&L&8Accesorios Azteca · ' + SITIO_TEXTO + '&C&8Actualizada al ' + fechaTexto + '&R&8Página &P de &N'
+                }
             });
-            hoja.columns = [{ width: 22 }, { width: 14 }, { width: 62 }, { width: 14 }, { width: 14 }];
+            hoja.columns = [{ width: 21 }, { width: 12 }, { width: 72 }, { width: 14 }, { width: 14 }];
 
-            // Encabezado: logotipo + título + fecha + enlace
-            [1, 2, 3].forEach(f => { hoja.getRow(f).height = 22; });
-            hoja.getRow(4).height = 8;
-            const anchoLogo = 165;
+            // Fila 1: logotipo + página web en grande
+            hoja.getRow(1).height = 52;
+            const ancla = anclaLogo(proporcion);
             hoja.addImage(logoId, {
-                tl: { col: 0.08, row: 0.15 },
-                ext: { width: anchoLogo, height: Math.round(anchoLogo * proporcion) },
-                hyperlinks: { hyperlink: SITIO_URL, tooltip: SITIO_TEXTO }
+                tl: { col: ancla.x / ancla.celdaAncho, row: ancla.y / ancla.celdaAlto },
+                ext: { width: ancla.ancho, height: ancla.alto }
             });
-            const encabezado = (fila, valor, fuente) => {
-                hoja.mergeCells(fila, 3, fila, 5);
-                const celda = hoja.getCell(fila, 3);
-                celda.value = valor;
-                celda.font = fuente;
-                celda.alignment = { horizontal: 'right', vertical: 'middle' };
-            };
-            encabezado(1, 'LISTA DE PRECIOS', { name: 'Calibri', size: 18, bold: true, color: { argb: COLOR_MARCA } });
-            encabezado(2, 'Actualizada al ' + fechaTexto, { name: 'Calibri', size: 11, color: { argb: COLOR_TEXTO } });
-            encabezado(3, { text: SITIO_TEXTO, hyperlink: SITIO_URL, tooltip: 'Visitar ' + SITIO_TEXTO },
-                       { name: 'Calibri', size: 11, bold: true, underline: true, color: { argb: 'FF1D4ED8' } });
-            for (let c = 1; c <= 5; c++) {
-                hoja.getCell(4, c).border = { bottom: { style: 'medium', color: { argb: COLOR_MARCA } } };
-            }
+            hoja.mergeCells(1, 2, 1, 5);
+            const web = hoja.getCell(1, 2);
+            web.value = { text: SITIO_TEXTO, hyperlink: SITIO_URL, tooltip: 'Visitar ' + SITIO_TEXTO };
+            web.font = { name: 'Arial', size: 26, color: { argb: 'FF000000' } };
+            web.alignment = { horizontal: 'center', vertical: 'middle' };
 
-            // Títulos de columna (quedan fijos al desplazarse y se repiten al imprimir)
+            // Fila 2: fecha de actualización y total de productos
+            hoja.getRow(2).height = 18;
+            hoja.mergeCells(2, 1, 2, 5);
+            const fecha = hoja.getCell(2, 1);
+            fecha.value = 'LISTA DE PRECIOS  ·  Actualizada al ' + fechaTexto + '  ·  ' + productos.length.toLocaleString('es-MX') + ' productos';
+            fecha.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF404040' } };
+            fecha.alignment = { horizontal: 'center', vertical: 'middle' };
+
+            // Fila 3: títulos de columna (fijos al desplazarse y repetidos en cada hoja impresa)
             const titulos = hoja.getRow(FILA_TITULOS);
             titulos.values = ['CÓDIGO DE PRODUCTO', 'CÓDIGO', 'DESCRIPCIÓN', 'PRECIO', 'PRECIO - IVA'];
-            titulos.height = 24;
+            titulos.height = 20;
             titulos.eachCell(celda => {
                 celda.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-                celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR_MARCA } };
+                celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ROJO } };
                 celda.alignment = { horizontal: 'center', vertical: 'middle' };
-                celda.border = { left: { style: 'thin', color: { argb: 'FFFFFFFF' } }, right: { style: 'thin', color: { argb: 'FFFFFFFF' } } };
+                celda.border = BORDES;
             });
 
             // Productos
-            const formatoDinero = '"$"#,##0.00';
-            const gris = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+            const zebra = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
+            const texto = { name: 'Arial', size: 10 };
+            const precio = { name: 'Calibri', size: 11, bold: true };
             productos.forEach((p, i) => {
                 const fila = hoja.getRow(FILA_TITULOS + 1 + i);
                 fila.values = [p.codigo, p.interno, p.descripcion, p.precio, p.sinIva];
-                fila.getCell(1).alignment = { horizontal: 'left' };
-                fila.getCell(2).alignment = { horizontal: 'center' };
-                fila.getCell(4).numFmt = formatoDinero;
-                fila.getCell(5).numFmt = formatoDinero;
-                if (i % 2 === 1) for (let c = 1; c <= 5; c++) fila.getCell(c).fill = gris;
+                for (let c = 1; c <= 5; c++) {
+                    const celda = fila.getCell(c);
+                    celda.border = BORDES;
+                    celda.font = c >= 4 ? precio : texto;
+                    if (c >= 4) celda.numFmt = CONTABLE;
+                    if (c <= 2) celda.alignment = { horizontal: 'center' };
+                    if (i % 2 === 1) celda.fill = zebra;
+                }
             });
 
             if (productos.length) {
@@ -562,15 +575,14 @@
                 wb.created = hoy;
                 const logoId = wb.addImage({ buffer: logo.buffer, extension: 'jpeg' });
 
-                construirPortada(wb, logoId, logo.proporcion, fechaTexto, productos.length);
-                construirLista(wb, logoId, logo.proporcion, fechaTexto, productos);
+                construirCatalogo(wb, logoId, logo.proporcion, fechaTexto, productos);
 
-                const datos = await wb.xlsx.writeBuffer();
+                const datos = await repararImagenes(await wb.xlsx.writeBuffer(), anclaLogo(logo.proporcion));
                 const blob = new Blob([datos], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
                 const enlace = document.createElement('a');
                 const fechaArchivo = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
                 enlace.href = URL.createObjectURL(blob);
-                enlace.download = `Lista de precios Accesorios Azteca ${fechaArchivo}.xlsx`;
+                enlace.download = `CATALOGO Accesorios Azteca ${fechaArchivo}.xlsx`;
                 document.body.appendChild(enlace);
                 enlace.click();
                 setTimeout(() => { URL.revokeObjectURL(enlace.href); enlace.remove(); }, 2000);
@@ -593,4 +605,5 @@
         else mostrarLogin('');
     </script>
 </body>
+</html>
 </html>
